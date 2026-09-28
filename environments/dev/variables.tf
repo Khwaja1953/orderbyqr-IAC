@@ -1,3 +1,4 @@
+# variables of vpc 
 variable "aws_region" {
   description = "AWS region to deploy into"
   type        = string
@@ -30,5 +31,12 @@ variable "public_subnet_cidrs" {
 
 variable "private_subnet_cidrs" {
   description = "CIDR blocks for private subnets"
+  type        = list(string)
+}
+
+
+# variables of ecr
+variable "repository_names" {
+  description = "Names of the ECR repositories to create"
   type        = list(string)
 }

@@ -13,6 +13,7 @@ provider "aws" {
   region = var.aws_region
 }
 
+# module of vpc
 module "vpc" {
   source               = "../../modules/vpc"
   project_name         = var.project_name
@@ -21,4 +22,13 @@ module "vpc" {
   azs                  = var.azs
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
+}
+
+
+# module of ecr
+module "ecr" {
+  source           = "../../modules/ecr"
+  project_name     = var.project_name
+  environment      = var.environment
+  repository_names = var.repository_names
 }
