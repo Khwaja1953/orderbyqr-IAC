@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>orderbyqr-terraform-eks — Build Plan</title>
+<style>
+:root{
+  --bg:#0d1117; --panel:rgba(255,255,255,0.045); --border:rgba(255,255,255,0.09);
+  --text:#e6e9ef; --dim:#8b93a1;
+  --terraform:#7B42BC; --docker:#2496ED; --jenkins:#D33833; --prom:#E6522C; --argo:#EF7B4D; --ansible:#EE0000;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+  box-sizing:border-box;
+}
+*{box-sizing:border-box;}
+html,body{height:100%;margin:0;}
+body{
+  background:var(--bg); color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  display:flex; min-height:100vh;
+}
+@media(prefers-color-scheme:light){:root:not([data-theme="dark"]){--bg:#0d1117;--text:#e6e9ef;}}
+nav{
+  width:230px; flex:0 0 230px; padding:24px 12px; border-right:1px solid var(--border);
+  overflow-y:auto;
+}
+nav h1{font-size:15px; font-weight:600; padding:0 12px 16px; letter-spacing:.2px;}
+nav h1 span{display:block; color:var(--dim); font-size:12px; font-weight:400; margin-top:4px;}
+.item{
+  display:flex; align-items:center; gap:10px; padding:10px 12px; border-radius:8px; cursor:pointer;
+  color:var(--dim); font-size:13.5px; margin-bottom:2px; transition:background .15s, color .15s;
+}
+.item:hover{background:var(--panel); color:var(--text);}
+.item.active{background:var(--panel); color:var(--text);}
+.dot{width:8px; height:8px; border-radius:50%; flex:0 0 8px;}
+.check{margin-left:auto; width:16px; height:16px; border:1px solid var(--border); border-radius:4px; flex:0 0 16px; display:flex; align-items:center; justify-content:center; font-size:11px;}
+.check.done{background:#2ecc71; border-color:#2ecc71; color:#0d1117;}
+.progress-wrap{padding:14px 12px 4px; margin-top:8px; border-top:1px solid var(--border);}
+.progress-bar{height:5px; background:var(--panel); border-radius:3px; overflow:hidden;}
+.progress-fill{height:100%; background:#2ecc71; width:0%; transition:width .3s;}
+.progress-text{font-size:11px; color:var(--dim); margin-top:6px;}
+main{flex:1; padding:36px 44px; overflow-y:auto; max-width:760px;}
+.phase-tag{display:inline-block; font-size:12px; padding:3px 10px; border-radius:20px; margin-bottom:14px;}
+h2{font-size:23px; margin:0 0 6px;}
+.sub{color:var(--dim); font-size:14px; margin-bottom:26px; line-height:1.5;}
+.flow{display:flex; align-items:center; gap:6px; flex-wrap:wrap; margin-bottom:28px;}
+.box{
+  background:var(--panel); border:1px solid var(--border); border-radius:10px;
+  padding:12px 14px; font-size:12.5px; line-height:1.4; min-width:110px;
+}
+.box b{display:block; font-size:13px; margin-bottom:2px;}
+.arrow{color:var(--dim); font-size:16px;}
+.milestone{
+  background:var(--panel); border:1px solid var(--border); border-left:3px solid #2ecc71;
+  border-radius:8px; padding:12px 14px; font-size:13px; margin-bottom:20px;
+}
+.milestone b{color:#2ecc71;}
+ul.detail{padding-left:18px; margin:0 0 24px; font-size:13.5px; line-height:1.7; color:#c4c9d4;}
+.mark-btn{
+  border:1px solid var(--border); background:var(--panel); color:var(--text); font-size:13px;
+  padding:9px 16px; border-radius:8px; cursor:pointer;
+}
+.mark-btn:hover{border-color:#2ecc71;}
+</style>
+</head>
+<body>
+<nav>
+  <h1>orderbyqr-terraform-eks<span>Build sequence</span></h1>
+  <div id="nav-items"></div>
+  <div class="progress-wrap">
+    <div class="progress-bar"><div class="progress-fill" id="pfill"></div></div>
+    <div class="progress-text" id="ptext">0 / 6 phases</div>
+  </div>
+</nav>
+<main id="main"></main>
+
+<script>
+const PHASES = [
+  {id:'terraform', color:'var(--terraform)', tag:'Phase 1', title:'Core infra — Terraform', sub:'Provisions the ground everything else runs on: networking, image registry, and the EKS cluster itself.',
+   flow:[['VPC module','subnets, NAT, routing'],['ECR module','image repos'],['EKS module','cluster + node group + IAM']],
+   details:['modules/vpc, modules/ecr, modules/eks — each isolated and reusable','environments/dev calls the modules with dev-sized variables','Remote state in S3 + lock table so state isn\'t local-only'],
+   milestone:'terraform apply produces a working, empty EKS cluster in ap-south-1.'},
+  {id:'docker', color:'var(--docker)', tag:'Phase 2', title:'Containerize + deploy the app', sub:'Docker builds the images; Kubernetes runs them. Terraform\'s job here is already done.',
+   flow:[['Dockerfiles','frontend + backend'],['Push to ECR','tagged images'],['K8s manifests','Deployments, Services, Ingress'],['Redis / Mongo','Helm charts + PVCs']],
+   details:['Frontend and backend each get their own Dockerfile, pushed to the ECR repos from Phase 1','Redis and MongoDB run in-cluster via Bitnami Helm charts — StatefulSet + EBS-backed PVC','ALB Ingress Controller exposes the app externally'],
+   milestone:'orderbyqr is reachable at a public URL, fully running on EKS.'},
+  {id:'jenkins', color:'var(--jenkins)', tag:'Phase 3', title:'CI/CD — Jenkins', sub:'Automates what Phase 2 did by hand: build, push, deploy — triggered by a git push.',
+   flow:[['Git push','orderbyqr repo'],['Jenkins build','docker build + test'],['Push to ECR','new image tag'],['Deploy','kubectl / helm upgrade']],
+   details:['Reuses the Jenkins pipeline experience from the portfolio project','Pipeline stages: checkout → build → test → push image → deploy'],
+   milestone:'A git push results in a fully automated redeploy, no manual steps.'},
+  {id:'monitoring', color:'var(--prom)', tag:'Phase 4', title:'Monitoring', sub:'Visibility into cluster health and app behavior — added as another Helm release, no infra changes.',
+   flow:[['kube-prometheus-stack','Prometheus + Alertmanager'],['Grafana','dashboards'],['Loki / EFK','log aggregation']],
+   details:['One Helm chart brings metrics + alerting + dashboards together','Dashboards cover node/pod health, plus app-level metrics if exposed'],
+   milestone:'Live dashboards showing cluster and application health.'},
+  {id:'gitops', color:'var(--argo)', tag:'Phase 5', title:'GitOps — ArgoCD', sub:'Replaces Jenkins pushing changes directly to the cluster with a pull-based sync from git.',
+   flow:[['k8s/ repo','desired state'],['ArgoCD','watches + syncs'],['Cluster','auto-reconciled']],
+   details:['ArgoCD continuously compares the repo\'s desired state to the live cluster','Jenkins\'s job narrows to build + push image + update the manifest repo'],
+   milestone:'Cluster state always matches git — no drift, fully auditable.'},
+  {id:'secrets', color:'var(--ansible)', tag:'Phase 6', title:'Secrets + hardening', sub:'Closes the loop on anything left in plaintext, plus Ansible for pieces outside Terraform/K8s\'s reach.',
+   flow:[['Secrets Manager','AWS-native storage'],['External Secrets Operator','synced into K8s'],['Ansible','bastion / host-level config, if added']],
+   details:['External Secrets Operator pulls from AWS Secrets Manager into K8s Secrets at runtime','Ansible has little to do on managed EKS nodes — its role shows up only if a self-managed host (e.g. a bastion) enters the picture'],
+   milestone:'No plaintext credentials in the repo; any host-level config is codified too.'}
+];
+
+let done = JSON.parse(localStorage.getItem('obq_done')||'{}');
+let active = 'terraform';
+
+function save(){ try{ localStorage.setItem('obq_done', JSON.stringify(done)); }catch(e){} }
+
+function renderNav(){
+  const el = document.getElementById('nav-items');
+  el.innerHTML = PHASES.map(p => `
+    <div class="item ${p.id===active?'active':''}" data-id="${p.id}">
+      <span class="dot" style="background:${p.color}"></span>
+      <span>${p.title}</span>
+      <span class="check ${done[p.id]?'done':''}">${done[p.id]?'✓':''}</span>
+    </div>`).join('');
+  el.querySelectorAll('.item').forEach(n => n.addEventListener('click', () => { active = n.dataset.id; render(); }));
+  const count = PHASES.filter(p => done[p.id]).length;
+  document.getElementById('pfill').style.width = (count/PHASES.length*100) + '%';
+  document.getElementById('ptext').textContent = count + ' / ' + PHASES.length + ' phases marked done';
+}
+
+function renderMain(){
+  const p = PHASES.find(x => x.id === active);
+  const main = document.getElementById('main');
+  main.innerHTML = `
+    <div class="phase-tag" style="background:${p.color}22; color:${p.color}; border:1px solid ${p.color}55">${p.tag}</div>
+    <h2>${p.title}</h2>
+    <div class="sub">${p.sub}</div>
+    <div class="flow">
+      ${p.flow.map((f,i) => `<div class="box"><b>${f[0]}</b>${f[1]}</div>${i<p.flow.length-1?'<span class="arrow">→</span>':''}`).join('')}
+    </div>
+    <ul class="detail">${p.details.map(d => `<li>${d}</li>`).join('')}</ul>
+    <div class="milestone"><b>Milestone:</b> ${p.milestone}</div>
+    <button class="mark-btn" id="markbtn">${done[p.id] ? 'Mark as not done' : 'Mark phase as done'}</button>
+  `;
+  document.getElementById('markbtn').addEventListener('click', () => {
+    done[p.id] = !done[p.id]; save(); render();
+  });
+}
+
+function render(){ renderNav(); renderMain(); }
+render();
+</script>
+</body>
+</html>
