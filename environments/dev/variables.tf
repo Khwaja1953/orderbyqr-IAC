@@ -40,3 +40,24 @@ variable "repository_names" {
   description = "Names of the ECR repositories to create"
   type        = list(string)
 }
+
+#variables of eks
+variable "cluster_version" {
+  description = "Kubernetes version for the EKS cluster"
+  type        = string
+}
+
+variable "node_desired_size" {
+  description = "Desired number of worker nodes"
+  type        = number
+}
+
+variable "node_min_size" {
+  description = "Minimum number of worker nodes"
+  type        = number
+}
+
+variable "node_max_size" {
+  description = "Maximum number of worker nodes"
+  type        = number
+}

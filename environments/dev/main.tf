@@ -32,3 +32,19 @@ module "ecr" {
   environment      = var.environment
   repository_names = var.repository_names
 }
+
+# module of eks
+module "eks" {
+  source = "../../modules/eks"
+
+  project_name    = var.project_name
+  environment     = var.environment
+  cluster_version = var.cluster_version
+
+  private_subnet_ids = module.vpc.private_subnet_ids
+  public_subnet_ids  = module.vpc.public_subnet_ids
+
+  node_desired_size = var.node_desired_size
+  node_min_size     = var.node_min_size
+  node_max_size     = var.node_max_size
+}

@@ -13,8 +13,8 @@ AWS (ap-south-1)
     ├── 3 private subnets (one per AZ)  -> EKS worker nodes
     └── 3 NAT gateways    (one per AZ)  -> outbound internet for private subnets
 
-ECR   -> stores frontend and backend Docker images
-EKS   -> runs the containers (planned)
+ECR   -> frontend and backend Docker images (pulled by nodes through their IAM role)
+EKS   -> control plane + managed node group (2 x t3.medium, private subnets)
 ```
 
 ## Tech stack
@@ -23,6 +23,7 @@ EKS   -> runs the containers (planned)
 - AWS: VPC, ECR, EKS
 - Docker and Kubernetes
 - Planned: Jenkins, Prometheus and Grafana, ArgoCD, External Secrets, Ansible
+- Tools needed locally: Terraform, AWS CLI, kubectl
 
 ## Project structure
 
@@ -31,7 +32,7 @@ orderbyqr-terraform-eks/
 ├── modules/
 │   ├── vpc/     # VPC, subnets, IGW, NAT gateways, route tables
 │   ├── ecr/     # container image repositories
-│   └── eks/     # EKS cluster, node group, IAM roles (planned)
+│   └── eks/     # EKS cluster, managed node group, IAM roles
 └── environments/
     └── dev/     # calls the modules with dev values
         ├── main.tf
@@ -46,6 +47,7 @@ Modules contain no environment-specific values. Everything specific to an enviro
 
 - Terraform >= 1.5.0
 - AWS CLI configured with credentials (`aws configure`)
+- kubectl (to talk to the cluster)
 - An AWS account and permissions to create VPC, ECR, and EKS resources
 
 ## Usage
@@ -63,16 +65,24 @@ To remove everything and stop charges:
 terraform destroy
 ```
 
+### Connect to the cluster
+
+```bash
+aws eks update-kubeconfig --region ap-south-1 --name orderbyqr-dev
+kubectl get nodes
+```
+
 ## Cost warning
 
-NAT gateways and (later) the EKS control plane and worker nodes are billed per hour while they exist. Run `terraform destroy` when you finish a session.
+NAT gateways, the EKS control plane and the EC2 worker nodes are billed per hour while they exist. Run `terraform destroy` when you finish a session.
 
 ## Progress
 
 - [x] VPC module (subnets, IGW, NAT per AZ, route tables)
 - [x] Dev environment wiring
-- [ ] ECR module (written, being applied)
-- [ ] EKS module
+- [x] ECR module
+- [ ] EKS module (cluster and node group written, not yet verified with kubectl)
+- [ ] EKS add-ons: OIDC provider, EBS CSI driver, AWS Load Balancer Controller
 - [ ] Dockerfiles and Kubernetes manifests for orderbyqr
 - [ ] CI/CD with Jenkins
 - [ ] Monitoring (Prometheus and Grafana)
@@ -82,6 +92,10 @@ NAT gateways and (later) the EKS control plane and worker nodes are billed per h
 
 ## Notes and design decisions
 
+- Own Terraform modules instead of registry modules, to learn how modules are designed.
 - One NAT gateway per AZ for high availability. This is more expensive than a single shared NAT.
-- Local Terraform state for now. Remote state is planned as a later step.
 - Subnet CIDRs are passed in explicitly, not computed, to keep the IP layout visible.
+- ECR for images: worker nodes pull through an IAM role, so no registry passwords or pull secrets are needed.
+- EKS uses access entries (`authentication_mode = "API"`) instead of the legacy `aws-auth` ConfigMap.
+- Worker nodes: 2 x t3.medium on-demand, in private subnets. The API endpoint is public and private so kubectl works from a laptop.
+- Local Terraform state for now. Remote state is planned as a later step.
