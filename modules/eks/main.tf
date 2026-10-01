@@ -70,6 +70,9 @@ resource "aws_eks_node_group" "main" {
   node_role_arn   = aws_iam_role.node.arn
   subnet_ids      = var.private_subnet_ids
 
+  version  = aws_eks_cluster.main.version
+  ami_type = "AL2023_x86_64_STANDARD"
+
   instance_types = var.node_instance_types
   capacity_type  = var.node_capacity_type
   disk_size      = var.node_disk_size
