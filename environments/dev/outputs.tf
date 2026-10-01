@@ -30,3 +30,12 @@ output "cluster_endpoint" {
   description = "Kubernetes API endpoint"
   value       = module.eks.cluster_endpoint
 }
+
+# output for ebs csi driver and load balancer controller IAM roles
+output "ebs_csi_role_arn" {
+  value = module.eks.ebs_csi_role_arn
+}
+
+output "lb_controller_role_arn" {
+  value = module.eks.lb_controller_role_arn
+}
