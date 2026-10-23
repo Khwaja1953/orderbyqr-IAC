@@ -55,7 +55,7 @@ Modules contain no environment-specific values. Everything specific to an enviro
 - Helm (to install the AWS Load Balancer Controller)
 - An AWS account and permissions to create VPC, ECR, EKS, and IAM resources
 
-## Usage
+## Start the infrastructure
 
 ```bash
 cd environments/dev
@@ -64,13 +64,43 @@ terraform plan
 terraform apply
 ```
 
+Terraform creates the VPC, ECR repositories, EKS cluster, node group, OIDC provider,
+IRSA roles, and the EBS CSI managed add-on. The EBS CSI add-on creates its own
+Kubernetes service account; no Kubernetes service account needs to be created manually.
+
+After the apply completes, configure `kubectl` and verify the cluster:
+
+```bash
+aws eks update-kubeconfig \
+  --region ap-south-1 \
+  --name orderbyqr-dev-eks-cluster
+
+kubectl get nodes
+kubectl get pods -n kube-system -l app.kubernetes.io/instance=aws-ebs-csi-driver
+aws eks describe-addon \
+  --cluster-name orderbyqr-dev-eks-cluster \
+  --addon-name aws-ebs-csi-driver \
+  --region ap-south-1
+```
+
+To start the infrastructure again after it has been stopped, run:
+
+```bash
+cd environments/dev
+terraform apply
+aws eks update-kubeconfig --region ap-south-1 --name orderbyqr-dev-eks-cluster
+kubectl get nodes
+```
+
 To remove everything and stop charges:
 
 ```bash
 terraform destroy
 ```
 
-Note: destroying removes everything inside the cluster too, including the add-ons installed below. They are not tracked by Terraform and must be reinstalled after a fresh apply.
+Note: destroying removes everything inside the cluster, including the EBS CSI add-on
+and the manually installed Load Balancer Controller. The EBS CSI add-on is recreated
+automatically by Terraform after the next `terraform apply`.
 
 ### Connect to the cluster
 
@@ -81,26 +111,32 @@ kubectl get nodes
 
 ## Post-apply setup (after every fresh `terraform apply`)
 
-Terraform only creates the AWS-side infrastructure and the IAM roles. Two add-ons still need to be installed into the cluster itself, manually, since they run as Kubernetes workloads rather than AWS resources.
+Terraform installs the EBS CSI driver automatically. Only the AWS Load Balancer
+Controller still needs to be installed manually because it is installed with Helm.
 
-### 1. EBS CSI driver (lets MongoDB/Redis get real disks)
+### 1. EBS CSI driver (automatic)
+
+The EBS CSI driver is installed by the `aws_eks_addon.ebs_csi` resource. Verify it with:
 
 ```bash
-terraform output -raw ebs_csi_role_arn
-```
-
-```bash
-aws eks create-addon \
+kubectl get pods -n kube-system -l app.kubernetes.io/instance=aws-ebs-csi-driver
+aws eks describe-addon \
   --cluster-name orderbyqr-dev-eks-cluster \
   --addon-name aws-ebs-csi-driver \
-  --service-account-role-arn <paste-the-arn> \
   --region ap-south-1
 ```
 
-Verify:
+The add-on creates `ebs-csi-controller-sa` in the `kube-system` namespace and uses the
+IAM role created by Terraform. Do not create this service account manually.
+
+If the add-on was created manually before this Terraform resource was added, import it
+into the Terraform state once instead of creating it again:
 
 ```bash
-kubectl get pods -n kube-system | grep ebs-csi
+cd environments/dev
+terraform import \
+  module.eks.aws_eks_addon.ebs_csi \
+  orderbyqr-dev-eks-cluster,aws-ebs-csi-driver
 ```
 
 ### 2. AWS Load Balancer Controller (exposes the app via Ingress/ALB)
@@ -156,7 +192,8 @@ NAT gateways, the EKS control plane and the EC2 worker nodes are billed per hour
 - [x] ECR module
 - [x] EKS module (cluster and node group)
 - [x] OIDC provider + IAM roles for EBS CSI driver and AWS Load Balancer Controller (IRSA)
-- [ ] EBS CSI driver and AWS Load Balancer Controller installed into the cluster (manual step, see Post-apply setup)
+- [x] EBS CSI driver installed as a Terraform-managed EKS add-on
+- [ ] AWS Load Balancer Controller installed into the cluster (manual Helm step, see Post-apply setup)
 - [ ] Dockerfiles and Kubernetes manifests for orderbyqr
 - [ ] CI/CD with Jenkins
 - [ ] Monitoring (Prometheus and Grafana)
@@ -172,8 +209,8 @@ NAT gateways, the EKS control plane and the EC2 worker nodes are billed per hour
 - ECR for images: worker nodes pull through an IAM role, so no registry passwords or pull secrets are needed.
 - EKS uses access entries (`authentication_mode = "API"`) instead of the legacy `aws-auth` ConfigMap.
 - Worker nodes: 2 x t3.medium on-demand, in private subnets. The API endpoint is public and private so kubectl works from a laptop.
-- Running Kubernetes 1.34, still in standard support; left as-is rather than bumping to 1.35/1.36.
+- Running Kubernetes 1.36, configured in `environments/dev/terraform.tfvars`.
 - IRSA (IAM Roles for Service Accounts): an OIDC provider is registered for the cluster so specific Kubernetes service accounts, not the whole node, can assume specific IAM roles. Used for the EBS CSI driver (`AmazonEBSCSIDriverPolicy`) and the AWS Load Balancer Controller (custom policy from AWS's published `iam_policy.json`).
 - The Load Balancer Controller's IAM policy is downloaded from the `aws-load-balancer-controller` GitHub repo rather than hand-written, since AWS maintains it directly.
-- Terraform creates the IAM roles only. The add-ons themselves (EBS CSI driver, Load Balancer Controller) are installed manually via `aws eks create-addon` and Helm, and are lost on `terraform destroy`.
+- Terraform creates and manages the EBS CSI EKS add-on, including its IAM role integration. The AWS Load Balancer Controller is still installed manually via Helm and is lost on `terraform destroy`.
 - Local Terraform state for now. Remote state is planned as a later step.

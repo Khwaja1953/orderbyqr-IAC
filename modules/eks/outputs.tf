@@ -29,7 +29,7 @@ output "oidc_provider_url" {
 }
 
 output "ebs_csi_role_arn" {
-  description = "ARN of the IAM role for the EBS CSI driver, used when creating its Kubernetes ServiceAccount"
+  description = "ARN of the IAM role used by the EKS-managed EBS CSI add-on"
   value       = aws_iam_role.ebs_csi.arn
 }
 
