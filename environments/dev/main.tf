@@ -111,3 +111,83 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [module.eks]
 }
+
+# Automatically cleans up any out-of-band ALBs, ENIs, and security groups
+# created by Kubernetes before Terraform attempts to delete subnets and VPC.
+resource "terraform_data" "k8s_alb_cleanup" {
+  triggers_replace = [
+    module.vpc.vpc_id,
+    var.aws_region
+  ]
+
+  provisioner "local-exec" {
+    when = destroy
+
+    command = <<-EOT
+      VPC_ID="${self.triggers_replace[0]}"
+      REGION="${self.triggers_replace[1]}"
+
+      echo "=== [Auto-Cleanup] Checking for Kubernetes Load Balancers in VPC: $VPC_ID ==="
+
+      # 1. Delete all ALBs / NLBs created in this VPC
+      ALB_ARNS=$(aws elbv2 describe-load-balancers \
+        --region "$REGION" \
+        --query "LoadBalancers[?VpcId=='$VPC_ID'].LoadBalancerArn" \
+        --output text 2>/dev/null || true)
+
+      if [ -n "$ALB_ARNS" ] && [ "$ALB_ARNS" != "None" ]; then
+        for arn in $ALB_ARNS; do
+          echo "Deleting Load Balancer: $arn"
+          aws elbv2 delete-load-balancer --region "$REGION" --load-balancer-arn "$arn" || true
+        done
+
+        echo "Waiting for Load Balancer ENIs to detach from subnets..."
+        while true; do
+          ENI_COUNT=$(aws ec2 describe-network-interfaces \
+            --region "$REGION" \
+            --filters "Name=vpc-id,Values=$VPC_ID" "Name=description,Values=ELB *" \
+            --query "length(NetworkInterfaces)" --output text 2>/dev/null || echo "0")
+
+          if [ "$ENI_COUNT" = "0" ] || [ -z "$ENI_COUNT" ]; then
+            echo "All Load Balancer ENIs released."
+            break
+          fi
+          echo "Waiting for $ENI_COUNT ENI(s) to detach..."
+          sleep 5
+        done
+      else
+        echo "No external Load Balancers found."
+      fi
+
+      # 2. Delete any leftover target groups in this VPC
+      TG_ARNS=$(aws elbv2 describe-target-groups \
+        --region "$REGION" \
+        --query "TargetGroups[?VpcId=='$VPC_ID'].TargetGroupArn" \
+        --output text 2>/dev/null || true)
+
+      if [ -n "$TG_ARNS" ] && [ "$TG_ARNS" != "None" ]; then
+        for tg in $TG_ARNS; do
+          echo "Deleting Target Group: $tg"
+          aws elbv2 delete-target-group --region "$REGION" --target-group-arn "$tg" || true
+        done
+      fi
+
+      # 3. Delete any leftover k8s-managed security groups
+      K8S_SGS=$(aws ec2 describe-security-groups \
+        --region "$REGION" \
+        --filters "Name=vpc-id,Values=$VPC_ID" "Name=tag-key,Values=elbv2.k8s.aws/*" \
+        --query "SecurityGroups[?GroupName!='default'].GroupId" --output text 2>/dev/null || true)
+
+      for sg in $K8S_SGS; do
+        if [ -n "$sg" ] && [ "$sg" != "None" ]; then
+          echo "Deleting Security Group: $sg"
+          aws ec2 delete-security-group --region "$REGION" --group-id "$sg" || true
+        fi
+      done
+
+      echo "=== [Auto-Cleanup] Completed successfully ==="
+    EOT
+  }
+
+  depends_on = [module.vpc]
+}
